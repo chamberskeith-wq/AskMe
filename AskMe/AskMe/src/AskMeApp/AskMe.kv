@@ -1,0 +1,328 @@
+#:kivy 2.3.0
+
+<Sbutton@Button>:
+    color: [1, 0, 0, 1]
+
+BoxLayout:
+    orientation: "vertical"
+
+    ScreenManager:
+        id: screen_manager
+
+        QueryScreen:
+            name: "query"
+
+        ContextScreen:
+            name: "context"
+            
+        SettingsScreen:
+            name: "settings"
+
+
+    # Bottom menu bar
+    BoxLayout:
+        size_hint_y: None
+        height: "50dp"
+        spacing: 5
+        padding: 5
+
+        Sbutton:
+            text: "Query"
+            on_release: screen_manager.current = "query"
+        Button:
+            text: "Settings"
+            on_release: screen_manager.current = "settings"
+        Button:
+            text: "Context"
+            on_release: screen_manager.current = "context"
+
+
+# -------------------------
+# Screens
+# -------------------------
+
+<QueryScreen>:
+    BoxLayout:
+        orientation: "vertical"
+        padding: 10
+        spacing: 10
+
+        # Split area: Prompt + Response
+        BoxLayout:
+            orientation: "horizontal"
+            size_hint_y: 1
+            spacing: 10
+
+            # Prompt Scroll
+            ScrollView:
+                id: prompt_scroll
+                do_scroll_x: False
+                do_scroll_y: True
+                bar_width: 10
+                size_hint_x: 0.5
+                canvas.before:
+                    Color:
+                        rgba: app.colors["white"]
+                    Rectangle:
+                        pos: self.pos
+                        size: self.size
+
+                AnchorLayout:
+                    anchor_y: 'bottom'
+                    size_hint_y: None
+                    height: max(prompt_label.height, self.parent.height)
+
+                    Label:
+                        id: prompt_label
+                        text: "Prompt:"
+                        size_hint_y: None
+                        text_size: self.width, None
+                        height: self.texture_size[1]
+                        halign: "left"
+                        valign: "top"
+                        color: app.colors["black"]
+
+            # Response Scroll
+            ScrollView:
+                id: response_scroll
+                do_scroll_x: False
+                do_scroll_y: True
+                bar_width: 10
+                size_hint_x: 0.5
+                canvas.before:
+                    Color:
+                        rgba: app.colors["white"]
+                    Rectangle:
+                        pos: self.pos
+                        size: self.size
+
+                AnchorLayout:
+                    anchor_y: 'bottom'
+                    size_hint_y: None
+                    height: max(response_label.height, self.parent.height)
+
+                    Label:
+                        id: response_label
+                        text: "Response:"
+                        size_hint_y: None
+                        text_size: self.width, None
+                        height: self.texture_size[1]
+                        halign: "left"
+                        valign: "top"
+                        color: app.colors["black"]
+
+        # Question input
+        BoxLayout:
+            orientation: "horizontal"
+            size_hint_y: None
+            height: 40
+
+            Label:
+                hint_text: "Ask Me About Anything:"
+                size_hint_x: 0.3
+                halign: "right"
+                valign: "middle"
+                text_size: self.size
+
+            TextInput:
+                id: question
+                multiline: False
+
+        # Context input
+        BoxLayout:
+            orientation: "horizontal"
+            size_hint_y: None
+            height: 40
+
+            Label:
+                text: "Context:"
+                size_hint_x: 0.3
+                halign: "right"
+                valign: "middle"
+                text_size: self.size
+
+            TextInput:
+                id: context
+                multiline: False
+                readonly: True
+
+        # Submit button
+        Button:
+            text: "Submit"
+            size_hint_y: None
+            height: 50
+            on_press: root.submit_inputs()
+
+
+<SettingsScreen>:
+    BoxLayout:
+        orientation: "vertical"
+        padding: 15
+        spacing: 10
+
+        Label:
+            text: "Application Settings"
+            size_hint_y: None
+            height: "40dp"
+
+        ScrollView:
+            size_hint_y: 1   # ← CRITICAL: take remaining vertical space
+            do_scroll_x: False
+
+            GridLayout:
+                cols: 2
+                spacing: 10
+                padding: 5
+                size_hint_y: None
+                height: self.minimum_height   # ← CRITICAL
+                row_default_height: "42dp"
+                row_force_default: True
+                
+                # Chroma DB Name                
+                Label:
+                    text: "Context  Database Name"
+                    halign: "right"
+                    valign: "middle"
+                    text_size: self.size
+                TextInput:
+                    id: chroma_db
+                    multiline: False
+
+                # Chroma DB Path
+                Label:
+                    text: "Context Database Path"
+                    halign: "right"
+                    valign: "middle"
+                    text_size: self.size
+                
+                BoxLayout:
+                    spacing: 5
+                    
+                    Label:
+                        id: chroma_db_path_display
+                        text: root.current_path or "Select folder..."
+                        halign: "left"
+                        valign: "middle"
+                        text_size: self.size
+                        shorten: True
+                        shorten_from: "left"
+                        
+                    Button:
+                        text: "Browse..."
+                        size_hint_x: None
+                        width: "100dp"
+                        on_release: root.browse_path()
+                
+                Label:
+                    text: "Default LLM Provider"
+                    halign: "right"
+                    valign: "middle"
+                    text_size: self.size
+                Spinner:
+                    id: default_llm
+                    size_hint_y: None
+                    height: "40dp"
+
+                Label:
+                    text: "Google API Key"
+                    halign: "right"
+                    valign: "middle"
+                    text_size: self.size
+                TextInput:
+                    id: google_api_key
+                    password: True
+                    multiline: False
+
+        BoxLayout:
+            size_hint_y: None
+            height: "50dp"
+            spacing: 10
+
+            Button:
+                text: "Apply"
+                disabled: not root.is_dirty
+                on_release: root.apply_settings()
+
+            Button:
+                text: "Cancel"
+                on_release: root.cancel_settings()
+
+<ContextScreen>:
+    BoxLayout:
+        orientation: "vertical"
+        padding: 10
+        spacing: 10
+
+        Label:
+            text: "Context Database Manager"
+            font_size: "20sp"
+            size_hint_y: 0.1
+
+        BoxLayout:
+            size_hint_y: 0.1
+            spacing: 10
+
+            TextInput:
+                id: new_db_name
+                hint_text: "New database name"
+                multiline: False
+
+            Button:
+                text: "Create"
+                on_release:
+                    root.create_database(new_db_name.text)
+                    new_db_name.text = ""
+
+        Label:
+            text: "Available Databases"
+            size_hint_y: 0.1
+
+        ScrollView:
+            size_hint_y: 0.4
+
+            GridLayout:
+                id: db_list
+                cols: 1
+                size_hint_y: None
+                height: self.minimum_height
+
+        BoxLayout:
+            size_hint_y: 0.15
+            spacing: 10
+
+            TextInput:
+                id: search_query
+                hint_text: "Enter semantic search query"
+                multiline: False
+
+            Button:
+                text: "Search"
+                on_release:
+                    root.semantic_search(search_query.text)
+
+                # Dynamic DB list
+                # Populated from available_dbs
+                # We use on_available_dbs to refresh
+                
+            Button:
+                text: "View Database Contents"
+                on_release: root.inspect_database()
+
+
+        BoxLayout:
+            size_hint_y: 0.15
+            spacing: 10
+
+            Button:
+                text: "Refresh"
+                on_release: root.refresh_database_list()
+
+            Button:
+                text: "Ingest Files / Images"
+                on_release: root.open_file_picker()
+
+        Label:
+            text: "Selected DB: " + root.selected_db
+            size_hint_y: 0.1
+
+ 

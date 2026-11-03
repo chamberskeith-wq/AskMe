@@ -1,0 +1,109 @@
+#:kivy 2.3.0
+
+<ChromaScreen>:
+    orientation: "vertical"
+    padding: 10
+    spacing: 10
+
+    # Top menu bar
+    BoxLayout:
+        size_hint_y: None
+        height: 40
+        spacing: 10
+
+        Button:
+            text: "🆕  New DB"
+            on_release: root.create_new_db()
+        Button:
+            text: "📂  Load DB"
+            on_release: root.load_db()
+        Button:
+            text: "Ingest File"
+            on_release: root.open_file_picker()
+        Button:
+            text: "Refresh Explorer"
+            on_release: root.refresh_explorer()
+        Button:
+            text: "❌  Exit"
+            on_release: app.stop()
+    # Status
+    Label:
+        id: status
+        size_hint_y: None
+        height: 25
+        text: "No database loaded"
+       
+    # Main split view
+    BoxLayout:
+        orientation: "horizontal"
+        spacing: 10
+
+        # LEFT: Explorer panel
+        BoxLayout:
+            orientation: "vertical"
+            size_hint_x: 0.4
+            spacing: 5
+
+            Label:
+                text: "Database Explorer"
+                size_hint_y: None
+                height: 30
+                bold: True
+
+            Label:
+                id: db_info
+                size_hint_y: None
+                height: 30
+                text: "Documents: 0"
+
+            ScrollView:
+                Label:
+                    id: explorer_list
+                    size_hint_y: None
+                    height: self.texture_size[1]
+                    text_size: self.width - 10, None
+                    halign: "left"
+                    valign: "top"
+
+        # RIGHT: Add / Query panel
+        BoxLayout:
+            orientation: "vertical"
+            spacing: 10
+
+            TextInput:
+                id: db_name_input
+                hint_text: "Database name"
+                size_hint_y: None
+                height: 40
+
+            TextInput:
+                id: text_input
+                hint_text: "Add document text"
+                size_hint_y: 0.3
+
+            Button:
+                text: "Add Document"
+                size_hint_y: None
+                height: 40
+                on_release: root.add_text()
+
+            TextInput:
+                id: query_input
+                hint_text: "Query text"
+                size_hint_y: None
+                height: 40
+
+            Button:
+                text: "Search"
+                size_hint_y: None
+                height: 40
+                on_release: root.search_text()
+
+            ScrollView:
+                Label:
+                    id: results_label
+                    size_hint_y: None
+                    height: self.texture_size[1]
+                    text_size: self.width - 10, None
+                    halign: "left"
+                    valign: "top"
