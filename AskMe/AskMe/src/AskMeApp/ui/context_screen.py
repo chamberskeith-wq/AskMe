@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 # Kivy imports
 import os
 import uuid
+from pypdf import PdfReader
+import re
+from AskMeApp.services.document_ingestion import DocumentIngestion
 
 from kivy.clock import Clock
 from kivy.app import App
@@ -114,32 +117,192 @@ class ContextScreen(Screen):
         btn.bind(on_release=ingest_files)
         popup.open()
 
+    # ---------------------------------------------------------
+    # PDF Text Extraction
+    # ---------------------------------------------------------
+
+    def extract_pdf_text(self, file_path):
+        """Extract text from a PDF, retaining page numbers."""
+
+        reader = PdfReader(file_path)
+        pages = []
+
+        for page_number, page in enumerate(reader.pages, start=1):
+            text = page.extract_text() or ""
+
+            if text.strip():
+                pages.append({
+                    "page": page_number,
+                    "text": text
+                })
+
+        return pages
+
+    # ---------------------------------------------------------
+    # Text Chunking
+    # ---------------------------------------------------------
+
+    def chunk_text(self, text, chunk_size=1000, overlap=150):
+        """Split text into overlapping chunks."""
+
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        if not text:
+            return []
+
+        chunks = []
+        start = 0
+
+        while start < len(text):
+
+            end = min(start + chunk_size, len(text))
+
+            if end < len(text):
+                # Prefer breaking at a word boundary
+                boundary = text.rfind(" ", start, end)
+
+                if boundary > start:
+                    end = boundary
+
+            chunk = text[start:end].strip()
+
+            if chunk:
+                chunks.append(chunk)
+
+            if end >= len(text):
+                break
+
+            start = max(end - overlap, start + 1)
+
+        return chunks
+
+    # ---------------------------------------------------------
+    # File Ingestion
+    # ---------------------------------------------------------
     def ingest_files(self, files):
+    
         app = App.get_running_app()
+    
+        try:
+            ingestion = DocumentIngestion(
+                chroma_client=app.chroma,
+                chunk_size=2400,
+                overlap=300,
+                batch_size=100
+            )
+    
+            result = ingestion.ingest_files(files)
+    
+            logger.info(
+                "Ingestion complete: %d files, %d chunks, %d failures",
+                result["files_succeeded"],
+                result["total_chunks"],
+                result["files_failed"]
+            )
+    
+            return result
+    
+        except Exception:
+            logger.exception("Document ingestion failed")
+            return None
 
-        if not app.chroma.collection:
-            try:
-                app.chroma.load_collection()
-            except Exception:
-                logger.error("No collection loaded")
-                return
-
-        for file_path in files:
-            try:
-                with open(file_path, "rb") as f:
-                    content = f.read()
-
-                app.chroma.add_documents(
-                    documents=[content.decode(errors="ignore")],
-                    ids=[str(uuid.uuid4())],
-                    metadatas=[{"source": file_path}]
-                )
-
-                logger.info("Ingested %s", file_path)
-
-            except Exception:
-                logger.exception("Failed ingesting file: %s", file_path)
-
+    # def ingest_files(self, files):
+    #
+    #     app = App.get_running_app()
+    #
+    #     if not app.chroma.collection:
+    #         try:
+    #             app.chroma.load_collection()
+    #         except Exception:
+    #             logger.exception("No collection loaded")
+    #             return
+    #
+    #     total_chunks = 0
+    #
+    #     for file_path in files:
+    #
+    #         try:
+    #             extension = os.path.splitext(file_path)[1].lower()
+    #
+    #             if extension == ".pdf":
+    #
+    #                 pages = self.extract_pdf_text(file_path)
+    #
+    #                 if not pages:
+    #                     logger.warning(
+    #                         "No extractable text found in PDF: %s",
+    #                         file_path
+    #                     )
+    #                     continue
+    #
+    #             elif extension == ".txt":
+    #
+    #                 with open(file_path, "r", encoding="utf-8") as f:
+    #                     pages = [{
+    #                         "page": 1,
+    #                         "text": f.read()
+    #                     }]
+    #
+    #             else:
+    #                 logger.warning(
+    #                     "Unsupported file type: %s", file_path
+    #                 )
+    #                 continue
+    #
+    #             documents = []
+    #             ids = []
+    #             metadatas = []
+    #
+    #             chunk_index = 0
+    #
+    #             for page_data in pages:
+    #
+    #                 chunks = self.chunk_text(page_data["text"])
+    #
+    #                 for chunk in chunks:
+    #
+    #                     documents.append(chunk)
+    #
+    #                     ids.append(str(uuid.uuid4()))
+    #
+    #                     metadatas.append({
+    #                         "source": os.path.basename(file_path),
+    #                         "source_path": file_path,
+    #                         "page": page_data["page"],
+    #                         "chunk_index": chunk_index
+    #                     })
+    #
+    #                     chunk_index += 1
+    #
+    #             if not documents:
+    #                 logger.warning(
+    #                     "No text chunks generated: %s", file_path
+    #                 )
+    #                 continue
+    #
+    #             app.chroma.add_documents(
+    #                 documents=documents,
+    #                 ids=ids,
+    #                 metadatas=metadatas
+    #             )
+    #
+    #             total_chunks += len(documents)
+    #
+    #             logger.info(
+    #                 "Ingested %s: %d chunks",
+    #                 file_path,
+    #                 len(documents)
+    #             )
+    #
+    #         except Exception:
+    #             logger.exception(
+    #                 "Failed ingesting file: %s", file_path
+    #             )
+    #
+    #     logger.info(
+    #         "Ingestion complete. Total chunks added: %d",
+    #         total_chunks
+    #     )
     
     def on_available_dbs(self, instance, value):
         Clock.schedule_once(self._refresh_db_buttons)
