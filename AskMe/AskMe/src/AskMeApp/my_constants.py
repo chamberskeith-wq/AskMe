@@ -30,5 +30,6 @@ class LLM_types(Enum):
     GEMINI_2_5_FLASH_LITE = 'gemini-2.5-flash-lite' #
     GEMINI_2_0_FLASH = 'gemini-2.0-flash' #
     GEMINI_2_0_FLASH_LITE = 'gemini-2.0-flash-lite' #
+    GEMINI_3_5_FLASH_LITE = 'gemini-3.5-flash-lite'
 
 

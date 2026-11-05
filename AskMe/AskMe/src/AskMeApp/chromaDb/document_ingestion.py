@@ -36,8 +36,8 @@ class DocumentIngestion:
     def __init__(
         self,
         chroma_client,
-        chunk_size=2400,
-        overlap=300,
+        chunk_size=900,
+        overlap=120,
         batch_size=100
     ):
 
@@ -108,106 +108,166 @@ class DocumentIngestion:
     # Text Chunking
     # ---------------------------------------------------------
 
-    def chunk_text(self, text):
-        """
-        Split text into overlapping chunks.
 
-        Preserve paragraph boundaries where possible.
-        Split oversized paragraphs at word boundaries.
+    @staticmethod
+    def _get_overlap_tail(text: str, max_chars: int) -> str:
+        """Return the last complete words within the requested character limit."""
+
+        if max_chars <= 0:
+            return ""
+
+        words = text.split()
+        tail = []
+
+        for word in reversed(words):
+            candidate = " ".join([word] + tail)
+
+            if len(candidate) > max_chars:
+                break
+
+            tail.insert(0, word)
+
+        return " ".join(tail)
+
+    def _split_long_paragraph(self, paragraph: str) -> List[str]:
         """
+        Split an oversized paragraph into sentence-sized units.
+
+        If a sentence is still too long, split it at word boundaries.
+        """
+
+        sentences = re.split(
+            r"(?<=[.!?])\s+",
+            paragraph
+        )
+
+        units = []
+
+        for sentence in sentences:
+
+            sentence = sentence.strip()
+
+            if not sentence:
+                continue
+
+            if len(sentence) <= self.chunk_size:
+                units.append(sentence)
+                continue
+
+            # Sentence is too long: split at word boundaries.
+            words = sentence.split()
+            current = ""
+
+            for word in words:
+
+                # Handle an unusually long word.
+                if len(word) > self.chunk_size:
+
+                    if current:
+                        units.append(current)
+                        current = ""
+
+                    for start in range(
+                        0, len(word), self.chunk_size
+                    ):
+                        units.append(
+                            word[start:start + self.chunk_size]
+                        )
+
+                    continue
+
+                candidate = (
+                    f"{current} {word}"
+                    if current else word
+                )
+
+                if len(candidate) <= self.chunk_size:
+                    current = candidate
+
+                else:
+                    if current:
+                        units.append(current)
+
+                    current = word
+
+            if current:
+                units.append(current)
+
+        return units
+
+    def chunk_text(self, text: str) -> List[str]:
+        """
+        Create overlapping chunks using paragraph and sentence boundaries.
+
+        Chunk size and overlap are measured in characters.
+        """
+
+        if not text or not text.strip():
+            return []
+
+        # Normalize line endings.
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+        # Treat single line breaks as normal spacing.
+        # Preserve blank lines as paragraph boundaries.
+        text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
 
         paragraphs = [
-            re.sub(r"\s+", " ", part).strip()
+            re.sub(r"[ \t]+", " ", part).strip()
             for part in re.split(r"\n\s*\n", text)
         ]
 
         paragraphs = [
-            p for p in paragraphs if p
+            paragraph for paragraph in paragraphs
+            if paragraph
         ]
+
+        # Build units that do not exceed the chunk size.
+        units = []
+
+        for paragraph in paragraphs:
+
+            if len(paragraph) <= self.chunk_size:
+                units.append(paragraph)
+
+            else:
+                units.extend(
+                    self._split_long_paragraph(paragraph)
+                )
 
         chunks = []
         current = ""
 
-        def split_long_paragraph(paragraph):
-
-            pieces = []
-            start = 0
-
-            while start < len(paragraph):
-
-                end = min(
-                    start + self.chunk_size,
-                    len(paragraph)
-                )
-
-                if end < len(paragraph):
-
-                    boundary = paragraph.rfind(
-                        " ", start, end
-                    )
-
-                    if boundary > start:
-                        end = boundary
-
-                piece = paragraph[start:end].strip()
-
-                if piece:
-                    pieces.append(piece)
-
-                if end >= len(paragraph):
-                    break
-
-                start = max(
-                    end - self.overlap,
-                    start + 1
-                )
-
-            return pieces
-
-        for paragraph in paragraphs:
-
-            # Handle oversized paragraphs separately
-            if len(paragraph) > self.chunk_size:
-
-                if current:
-                    chunks.append(current)
-                    current = ""
-
-                chunks.extend(
-                    split_long_paragraph(paragraph)
-                )
-
-                continue
+        # Combine units into chunks.
+        for unit in units:
 
             candidate = (
-                f"{current}\n\n{paragraph}"
-                if current else paragraph
+                f"{current}\n\n{unit}"
+                if current else unit
             )
 
             if len(candidate) <= self.chunk_size:
-
                 current = candidate
+                continue
 
-            else:
+            # Save the completed chunk.
+            if current:
+                chunks.append(current)
 
-                if current:
-                    chunks.append(current)
+            # Carry forward a controlled amount of overlap.
+            available = (
+                self.chunk_size - len(unit) - 2
+            )
 
-                # Carry the end of the previous chunk forward
-                if self.overlap and current:
+            tail = self._get_overlap_tail(
+                current,
+                min(self.overlap, max(0, available))
+            )
 
-                    tail = current[-self.overlap:].lstrip()
-
-                    current = (
-                        f"{tail}\n\n{paragraph}"
-                        if tail else paragraph
-                    )
-
-                    if len(current) > self.chunk_size:
-                        current = paragraph
-
-                else:
-                    current = paragraph
+            current = (
+                f"{tail}\n\n{unit}"
+                if tail else unit
+            )
 
         if current:
             chunks.append(current)
@@ -216,6 +276,115 @@ class DocumentIngestion:
             chunk for chunk in chunks
             if chunk.strip()
         ]
+
+    # def chunk_text(self, text):
+    #     """
+    #     Split text into overlapping chunks.
+    #
+    #     Preserve paragraph boundaries where possible.
+    #     Split oversized paragraphs at word boundaries.
+    #     """
+    #
+    #     paragraphs = [
+    #         re.sub(r"\s+", " ", part).strip()
+    #         for part in re.split(r"\n\s*\n", text)
+    #     ]
+    #
+    #     paragraphs = [
+    #         p for p in paragraphs if p
+    #     ]
+    #
+    #     chunks = []
+    #     current = ""
+    #
+    #     def split_long_paragraph(paragraph):
+    #
+    #         pieces = []
+    #         start = 0
+    #
+    #         while start < len(paragraph):
+    #
+    #             end = min(
+    #                 start + self.chunk_size,
+    #                 len(paragraph)
+    #             )
+    #
+    #             if end < len(paragraph):
+    #
+    #                 boundary = paragraph.rfind(
+    #                     " ", start, end
+    #                 )
+    #
+    #                 if boundary > start:
+    #                     end = boundary
+    #
+    #             piece = paragraph[start:end].strip()
+    #
+    #             if piece:
+    #                 pieces.append(piece)
+    #
+    #             if end >= len(paragraph):
+    #                 break
+    #
+    #             start = max(
+    #                 end - self.overlap,
+    #                 start + 1
+    #             )
+    #
+    #         return pieces
+    #
+    #     for paragraph in paragraphs:
+    #
+    #         # Handle oversized paragraphs separately
+    #         if len(paragraph) > self.chunk_size:
+    #
+    #             if current:
+    #                 chunks.append(current)
+    #                 current = ""
+    #
+    #             chunks.extend(
+    #                 split_long_paragraph(paragraph)
+    #             )
+    #
+    #             continue
+    #
+    #         candidate = (
+    #             f"{current}\n\n{paragraph}"
+    #             if current else paragraph
+    #         )
+    #
+    #         if len(candidate) <= self.chunk_size:
+    #
+    #             current = candidate
+    #
+    #         else:
+    #
+    #             if current:
+    #                 chunks.append(current)
+    #
+    #             # Carry the end of the previous chunk forward
+    #             if self.overlap and current:
+    #
+    #                 tail = current[-self.overlap:].lstrip()
+    #
+    #                 current = (
+    #                     f"{tail}\n\n{paragraph}"
+    #                     if tail else paragraph
+    #                 )
+    #
+    #                 if len(current) > self.chunk_size:
+    #                     current = paragraph
+    #
+    #             else:
+    #                 current = paragraph
+    #
+    #     if current:
+    #         chunks.append(current)
+    #
+    #     return [
+    #         chunk for chunk in chunks
+    #         if chunk.strip()
+    #     ]
 
     # ---------------------------------------------------------
     # File Identification

@@ -86,8 +86,14 @@ class ChromaClient:
     #===========================================================================
     def list_databases(self) -> List[str]:
         self._require_client()
-        return [c.name for c in self.client.list_collections()]
-
+ 
+        collections = self.client.list_collections()
+    
+        return [
+            c if isinstance(c, str) else c.name
+            for c in collections
+        ]
+    
     #===========================================================================
     # database_exists
     #===========================================================================

@@ -25,7 +25,7 @@ class LLMClient:
 
     def _create_provider(self):
 
-        if self.config.default_llm == LLM_types.GEMINI_2_5_FLASH:
+        if self.config.default_llm == LLM_types.GEMINI_3_5_FLASH_LITE:
             return GeminiProvider(self.config)
 
         raise RuntimeError("Unsupported LLM type")
