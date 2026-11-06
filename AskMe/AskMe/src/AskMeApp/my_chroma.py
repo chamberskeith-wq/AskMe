@@ -20,6 +20,7 @@ import logging
 from typing import List, Dict, Any, Optional, Sequence
 
 from chromadb import PersistentClient
+from chromadb.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,12 @@ class ChromaClient:
             "db_name": self.config.chroma_db,
         })
 
-        self.client = PersistentClient(path=db_path)
+        self.client = PersistentClient(
+            path=db_path,
+            settings=Settings(
+                anonymized_telemetry=False
+            )
+        )
         self.collection = None
 
     def shutdown(self) -> None:

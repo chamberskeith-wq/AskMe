@@ -154,6 +154,7 @@ class DocumentIngestion:
 
         for page_number, page in enumerate(reader.pages, start=1):
             raw_text = page.extract_text() or ""
+                        
             if raw_text.strip():
                 pages.append({
                     "page": page_number,
@@ -183,8 +184,8 @@ class DocumentIngestion:
         single-line breaks (often meaningful table rows) are preserved.
         """
         paragraphs = [
-            re.sub(r"\\s+", " ", part).strip()
-            for part in re.split(r"\\n\\s*\\n", text)
+            re.sub(r"\s+", " ", part).strip()
+            for part in re.split(r"\n\\s*\n", text)
         ]
         paragraphs = [p for p in paragraphs if p]
 
@@ -216,7 +217,7 @@ class DocumentIngestion:
                 chunks.extend(split_long_text(paragraph))
                 continue
 
-            candidate = f"{current}\\n\\n{paragraph}" if current else paragraph
+            candidate = f"{current}\n\n{paragraph}" if current else paragraph
             if len(candidate) <= self.chunk_size:
                 current = candidate
             else:
@@ -237,9 +238,9 @@ class DocumentIngestion:
         This method packs adjacent lines together and prefers splitting at
         line boundaries. It does not attempt to infer missing table columns.
         """
-        normalized = (text or "").replace("\\r\\n", "\\n").replace("\\r", "\\n")
-        lines = [re.sub(r"[ \\t]+", " ", line).strip()
-                 for line in normalized.split("\\n")]
+        normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+        lines = [re.sub(r"[ \t]+", " ", line).strip()
+                 for line in normalized.split("\n")]
 
         # Remove excess blank lines, but retain one blank line as a section break.
         compact_lines: List[str] = []
@@ -257,7 +258,7 @@ class DocumentIngestion:
         current_lines: List[str] = []
 
         def current_text() -> str:
-            return "\\n".join(current_lines).strip()
+            return "\n".join(current_lines).strip()
 
         def split_oversized_line(line: str) -> List[str]:
             """Fallback for an individual extracted line longer than chunk_size."""
@@ -300,7 +301,7 @@ class DocumentIngestion:
                 continue
 
             candidate_lines = current_lines + [line]
-            candidate = "\\n".join(candidate_lines).strip()
+            candidate = "\n".join(candidate_lines).strip()
 
             if not current_lines or len(candidate) <= self.chunk_size:
                 current_lines = candidate_lines

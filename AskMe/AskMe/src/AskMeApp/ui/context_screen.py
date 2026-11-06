@@ -27,6 +27,10 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.filechooser import FileChooserListView
 from kivy.uix.button import Button
 from kivy.uix.label import Label
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.gridlayout import GridLayout
+from kivy.metrics import dp
+from kivy.graphics import Color, RoundedRectangle
 
 #===============================================================================
 # ContextScreen
@@ -202,29 +206,104 @@ class ContextScreen(Screen):
     # View Database button
     #===========================================================================
     def inspect_database(self):
-
+        """Build collection statistics and show a readable record sample."""
         app = App.get_running_app()
 
         if not app.chroma.collection:
             try:
                 app.chroma.load_collection()
             except Exception:
-                logger.error("No collection loaded")
+                logger.exception("No collection loaded for inspection")
                 return
 
         try:
-            count = app.chroma.count()
-            results = app.chroma.peek(limit=10)
+            total_records = app.chroma.count()
+            metadata_rows = self._read_all_metadata(app.chroma, batch_size=1000)
+            stats = self._build_inspection_stats(metadata_rows, total_records)
 
-            documents = results.get("documents", [])
-            metadatas = results.get("metadatas", [])
-            ids = results.get("ids", [])
+            # Fetch full document text only for the small visible preview.
+            preview = app.chroma.get(
+                limit=min(15, total_records),
+                include=["documents", "metadatas"],
+            ) if total_records else {"ids": [], "documents": [], "metadatas": []}
 
-            self._show_database_popup(count, ids, documents, metadatas)
+            self._show_database_popup(stats, preview)
 
         except Exception:
             logger.exception("Database inspection failed")
 
+    @staticmethod
+    def _read_all_metadata(chroma_client, batch_size=1000):
+        """Read metadata in pages; avoid loading all document text for stats."""
+        rows = []
+        offset = 0
+
+        while True:
+            batch = chroma_client.get(
+                limit=batch_size,
+                offset=offset,
+                include=["metadatas"],
+            )
+            ids = batch.get("ids", []) or []
+            metadatas = batch.get("metadatas", []) or []
+
+            if not ids:
+                break
+
+            for index, record_id in enumerate(ids):
+                metadata = metadatas[index] if index < len(metadatas) else None
+                rows.append({"id": record_id, "metadata": metadata or {}})
+
+            offset += len(ids)
+            if len(ids) < batch_size:
+                break
+
+        return rows
+
+    @staticmethod
+    def _build_inspection_stats(metadata_rows, total_records):
+        """Calculate collection-level statistics from Chroma metadata."""
+        from collections import Counter, defaultdict
+
+        type_counts = Counter()
+        source_counts = Counter()
+        source_pages = defaultdict(set)
+        chunk_sizes = []
+        document_ids = set()
+        page_keys = set()
+
+        for row in metadata_rows:
+            meta = row.get("metadata") or {}
+            source = meta.get("source") or meta.get("source_path") or "Unknown source"
+            content_type = meta.get("content_type") or "unspecified"
+
+            type_counts[str(content_type)] += 1
+            source_counts[str(source)] += 1
+
+            document_id = meta.get("document_id")
+            if document_id:
+                document_ids.add(document_id)
+
+            page = meta.get("page")
+            if page is not None:
+                source_pages[str(source)].add(page)
+                page_keys.add((str(source), page))
+
+            size = meta.get("chunk_size")
+            if isinstance(size, (int, float)):
+                chunk_sizes.append(int(size))
+
+        return {
+            "total_records": total_records,
+            "metadata_records_read": len(metadata_rows),
+            "source_count": len(source_counts),
+            "document_count": len(document_ids) or len(source_counts),
+            "page_count": len(page_keys),
+            "type_counts": dict(type_counts),
+            "source_counts": dict(source_counts),
+            "source_pages": {key: len(value) for key, value in source_pages.items()},
+            "chunk_sizes": chunk_sizes,
+        }
 
     # ---------------------------------------------------------
     # UI Support methods
@@ -315,37 +394,161 @@ class ContextScreen(Screen):
         popup.open()
     
     
-    def _show_database_popup(self, count, ids, documents, metadatas):
+    @staticmethod
+    def _fit_inspection_label(label, *args):
+        """Wrap a Kivy label to its available width and size it to its text."""
+        label.text_size = (max(label.width - dp(20), dp(100)), None)
+        label.height = label.texture_size[1] + dp(16)
 
-        layout = BoxLayout(orientation="vertical", spacing=10, padding=10)
-
-        header = Label(
-            text=f"[b]Total Records:[/b] {count}",
-            markup=True,
-            size_hint_y=None
+    def _show_database_popup(self, stats, preview):
+        """Display collection statistics and a scrollable record preview."""
+        root = BoxLayout(
+            orientation="vertical",
+            spacing=dp(8),
+            padding=dp(10),
         )
-        header.bind(texture_size=lambda i, v: setattr(i, "height", v[1]))
-        layout.add_widget(header)
 
-        for doc_id, doc, meta in zip(ids, documents, metadatas):
-
-            snippet = doc[:250] + ("..." if len(doc) > 250 else "")
-            source = meta.get("source", "Unknown")
-
-            label = Label(
-                text=f"[b]ID:[/b] {doc_id}\n"
-                     f"[b]Source:[/b] {source}\n\n"
-                     f"{snippet}",
-                markup=True,
-                size_hint_y=None
+        sizes = stats["chunk_sizes"]
+        if sizes:
+            size_summary = (
+                f"Chunk size (characters): min {min(sizes):,} | "
+                f"avg {sum(sizes) / len(sizes):,.0f} | max {max(sizes):,}"
             )
+        else:
+            size_summary = "Chunk size statistics unavailable (metadata missing)."
 
-            label.bind(texture_size=lambda i, v: setattr(i, "height", v[1]))
-            layout.add_widget(label)
+        summary_lines = [
+            f"COLLECTION OVERVIEW",
+            f"Records: {stats['total_records']:,}    "
+            f"Source files: {stats['document_count']:,}    "
+            f"Pages represented: {stats['page_count']:,}",
+            f"Metadata inspected: {stats['metadata_records_read']:,}",
+            size_summary,
+            "",
+            "RECORD TYPES",
+        ]
+        if stats["type_counts"]:
+            summary_lines.extend(
+                f"  {name}: {amount:,}"
+                for name, amount in sorted(stats["type_counts"].items())
+            )
+        else:
+            summary_lines.append("  No content_type metadata found.")
+
+        summary_lines.extend(["", "RECORDS BY SOURCE"])
+        if stats["source_counts"]:
+            ranked_sources = sorted(
+                stats["source_counts"].items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+            for source, amount in ranked_sources[:8]:
+                pages = stats["source_pages"].get(source, 0)
+                summary_lines.append(
+                    f"  {source} — {amount:,} records, {pages:,} pages"
+                )
+            remaining_sources = len(ranked_sources) - 8
+            if remaining_sources > 0:
+                summary_lines.append(
+                    f"  ... and {remaining_sources:,} more source files"
+                )
+        else:
+            summary_lines.append("  No source metadata found.")
+
+        summary = Label(
+            text="\n".join(summary_lines),
+            markup=False,
+            size_hint_y=None,
+            halign="left",
+            valign="top",
+        )
+        summary.bind(width=self._fit_inspection_label)
+        summary.bind(texture_size=lambda widget, size: setattr(
+            widget, "height", size[1] + dp(16)
+        ))
+        root.add_widget(summary)
+
+        separator = Label(
+            text=f"SAMPLE RECORDS (showing {len(preview.get('ids', [])):,} "
+                 f"of {stats['total_records']:,})",
+            size_hint_y=None,
+            height=dp(30),
+            halign="left",
+            valign="middle",
+        )
+        root.add_widget(separator)
+
+        scroll = ScrollView(
+            do_scroll_x=False,
+            do_scroll_y=True,
+            bar_width=dp(8),
+        )
+        records_layout = GridLayout(
+            cols=1,
+            spacing=dp(10),
+            padding=(dp(4), dp(4)),
+            size_hint_y=None,
+        )
+        records_layout.bind(minimum_height=records_layout.setter("height"))
+
+        ids = preview.get("ids", []) or []
+        documents = preview.get("documents", []) or []
+        metadatas = preview.get("metadatas", []) or []
+
+        if not ids:
+            empty = Label(
+                text="This collection contains no records.",
+                size_hint_y=None,
+                height=dp(40),
+            )
+            records_layout.add_widget(empty)
+        else:
+            for index, record_id in enumerate(ids):
+                document = documents[index] if index < len(documents) else ""
+                metadata = metadatas[index] if index < len(metadatas) else {}
+                metadata = metadata or {}
+
+                source = metadata.get("source", "Unknown source")
+                page = metadata.get("page", "?")
+                content_type = metadata.get("content_type", "unspecified")
+                chunk_size = metadata.get("chunk_size", len(document or ""))
+                test_name = metadata.get("test_name")
+                snippet = (document or "").strip()
+                
+                if len(snippet) > 650:
+                    snippet = snippet[:650].rsplit(" ", 1)[0] + " …"
+
+                heading = [
+                    f"Record {index + 1} | {content_type}",
+                    f"Source: {source} | Page: {page} | Characters: {chunk_size}",
+                ]
+                if test_name:
+                    heading.append(f"Test: {test_name}")
+                heading.append(f"ID: {record_id}")
+                heading.append("")
+                heading.append(snippet or "[No document text returned]")
+
+                card = Label(
+                    text="\n".join(heading),
+                    markup=False,
+                    size_hint_y=None,
+                    halign="left",
+                    valign="top",
+                )
+                card.bind(width=self._fit_inspection_label)
+                card.bind(texture_size=lambda widget, size: setattr(
+                    widget, "height", size[1] + dp(18)
+                ))
+                records_layout.add_widget(card)
+
+        scroll.add_widget(records_layout)
+        root.add_widget(scroll)
 
         popup = Popup(
-            title="Database Contents (Preview)",
-            content=layout,
-            size_hint=(0.9, 0.9)
+            title="ChromaDB Collection Inspection",
+            content=root,
+            size_hint=(0.94, 0.94),
+            auto_dismiss=True,
         )
         popup.open()
+
