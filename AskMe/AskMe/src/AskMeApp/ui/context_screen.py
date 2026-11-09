@@ -192,12 +192,26 @@ class ContextScreen(Screen):
         try:
             retrieval = DocumentRetrieval(app.chroma)
     
-            results = retrieval.search(
+            # Search both record types. Repeated lab measurements from the
+            # same source file are consolidated while preserving every
+            # original occurrence and its page-level provenance.
+            combined = retrieval.search_combined(
                 query_text=query_text,
-                top_k=top_k
+                top_k_per_type=top_k,
+                deduplicate_labs=True,
             )
-    
-            self.display_search_results(results)
+
+            logger.info(
+                "Combined retrieval for %r: raw_lab=%d, consolidated_lab=%d, "
+                "source_text=%d, combined=%d",
+                query_text.strip(),
+                combined["counts"]["raw_lab_results"],
+                combined["counts"]["lab_results"],
+                combined["counts"]["source_text"],
+                combined["counts"]["combined"],
+            )
+
+            self.display_search_results(combined)
     
         except Exception:
             logger.exception("Semantic search failed")
@@ -342,58 +356,178 @@ class ContextScreen(Screen):
     
         popup.open()
 
-    def display_search_results(self, results):
-    
-        layout = BoxLayout(
+    def display_search_results(self, comparison):
+        """Display lab-result and source-text searches in separate sections."""
+        root = BoxLayout(
             orientation="vertical",
-            spacing=10,
-            padding=10
+            spacing=dp(8),
+            padding=dp(10),
         )
-    
-        if not results:
-            layout.add_widget(
-                Label(text="No results found")
+
+        lab_results = comparison.get("lab_results", []) or []
+        source_results = comparison.get("source_text", []) or []
+        raw_lab_count = len(comparison.get("raw_lab_results", lab_results))
+        total_results = len(lab_results) + len(source_results)
+
+        summary_text = (
+            f"{len(lab_results)} consolidated laboratory results  |  "
+            f"{len(source_results)} source-text chunks"
+        )
+        
+        if raw_lab_count > len(lab_results):
+            summary_text += (
+                f"\n{raw_lab_count - len(lab_results)} "
+                f"repeated lab occurrences consolidated"
             )
-    
-        else:
-            for result in results:
-    
-                metadata = result["metadata"]
-    
-                source = metadata.get("source", "Unknown")
-                page = metadata.get("page", "Unknown")
-                distance = result["distance"]
-                document = result["document"]
-    
-                text = (
-                    f"Source: {source}\n"
-                    f"Page: {page}\n"
-                    f"Distance: {distance:.4f}\n\n"
-                    f"{document[:500]}"
-                )
-    
-                label = Label(
-                    text=text,
-                    markup=False,
-                    size_hint_y=None
-                )
-    
-                label.bind(
-                    texture_size=lambda instance, value:
-                    setattr(instance, "height", value[1])
-                )
-    
-                layout.add_widget(label)
-    
-        popup = Popup(
-            title="Document Retrieval Results",
-            content=layout,
-            size_hint=(0.9, 0.9)
+        
+        count_label = Label(
+            text=summary_text,
+            size_hint_y=None,
+            height=dp(52),
+            halign="left",
+            valign="middle",
         )
-    
+        
+        count_label.bind(
+            width=lambda label, width: setattr(
+                label, "text_size", (width, None)
+            )
+        )
+        
+        root.add_widget(count_label)
+
+        scroll = ScrollView(
+            do_scroll_x=False,
+            do_scroll_y=True,
+            bar_width=dp(8),
+        )
+        results_layout = GridLayout(
+            cols=1,
+            spacing=dp(10),
+            padding=(dp(3), dp(5)),
+            size_hint_y=None,
+        )
+        results_layout.bind(minimum_height=results_layout.setter("height"))
+
+        def add_section(title, records):
+            section_header = Label(
+                text=f"{title} ({len(records)} matches)",
+                size_hint=(1, None),
+                height=dp(32),
+                halign="left",
+                valign="middle",
+                bold=True,
+            )
+            results_layout.add_widget(section_header)
+
+            if not records:
+                empty_label = Label(
+                    text="No matches found in this record type.",
+                    size_hint=(1, None),
+                    height=dp(32),
+                    halign="left",
+                    valign="middle",
+                )
+                results_layout.add_widget(empty_label)
+                return
+
+            for index, result in enumerate(records, start=1):
+                metadata = result.get("metadata") or {}
+                source = (
+                    metadata.get("source")
+                    or metadata.get("source_path")
+                    or "Unknown source"
+                )
+                page = metadata.get("page", "Unknown")
+                content_type = str(
+                    metadata.get("content_type", "unspecified")
+                ).replace("_", " ").title()
+                test_name = metadata.get("test_name")
+                distance = result.get("distance")
+                document = (result.get("document") or "").strip()
+
+                lines = [f"RESULT {index}  |  {content_type}"]
+                if test_name:
+                    lines.append(f"Test: {test_name}")
+                lines.extend([
+                    f"Source: {source}",
+                    f"Page: {page}",
+                    (
+                        f"Cosine distance: {distance:.4f}"
+                        if isinstance(distance, (int, float))
+                        else "Cosine distance: unavailable"
+                    ),
+                ])
+
+                duplicate_count = metadata.get("duplicate_count", 1)
+                source_pages = metadata.get("source_pages") or []
+                if duplicate_count > 1:
+                    lines.append(
+                        f"Consolidated occurrences: {duplicate_count}"
+                    )
+                    lines.append(
+                        "Original pages: " + ", ".join(map(str, source_pages))
+                    )
+
+                lines.append("")
+                snippet = document[:1200]
+                if len(document) > 1200:
+                    snippet = snippet.rsplit(" ", 1)[0] + " … [truncated]"
+                lines.append(snippet or "[No document text returned]")
+
+                card = Label(
+                    text="\n".join(lines),
+                    markup=False,
+                    size_hint=(1, None),
+                    height=dp(80),
+                    halign="left",
+                    valign="top",
+                    padding=(dp(12), dp(10)),
+                )
+                card.bind(width=self._fit_search_label)
+                card.bind(texture_size=self._set_search_label_height)
+
+                with card.canvas.before:
+                    Color(0.16, 0.16, 0.16, 1)
+                    background = RoundedRectangle(
+                        pos=card.pos,
+                        size=card.size,
+                        radius=[dp(6)],
+                    )
+
+                card.bind(
+                    pos=lambda widget, value, shape=background:
+                        setattr(shape, "pos", value),
+                    size=lambda widget, value, shape=background:
+                        setattr(shape, "size", value),
+                )
+                results_layout.add_widget(card)
+
+        add_section("LABORATORY RESULTS", lab_results)
+        add_section("ORIGINAL SOURCE TEXT", source_results)
+
+        scroll.add_widget(results_layout)
+        root.add_widget(scroll)
+
+        popup = Popup(
+            title="Document Retrieval Comparison",
+            content=root,
+            size_hint=(0.92, 0.90),
+            auto_dismiss=True,
+        )
         popup.open()
-    
-    
+
+    @staticmethod
+    def _fit_search_label(label, *_args):
+        """Set a wrapping width after the ScrollView lays out the label."""
+        available_width = max(label.width - dp(24), dp(100))
+        label.text_size = (available_width, None)
+
+    @staticmethod
+    def _set_search_label_height(label, texture_size):
+        """Size a result card from its fully wrapped text."""
+        label.height = max(texture_size[1] + dp(20), dp(60))
+
     @staticmethod
     def _fit_inspection_label(label, *args):
         """Wrap a Kivy label to its available width and size it to its text."""
@@ -514,7 +648,6 @@ class ContextScreen(Screen):
                 chunk_size = metadata.get("chunk_size", len(document or ""))
                 test_name = metadata.get("test_name")
                 snippet = (document or "").strip()
-                
                 if len(snippet) > 650:
                     snippet = snippet[:650].rsplit(" ", 1)[0] + " …"
 

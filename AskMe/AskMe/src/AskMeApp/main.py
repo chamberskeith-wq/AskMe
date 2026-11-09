@@ -25,6 +25,9 @@ from AskMeApp.my_LLM import LLMClient
 from AskMeApp.my_prompt import MyPrompt
 from AskMeApp.my_configuration import ConfigError, load_config 
 from AskMeApp.my_chroma import ChromaClient
+from AskMeApp.chromaDb.document_retreival import DocumentRetrieval
+from AskMeApp.llm.context_assembly import ContextAssembler
+
 # these need to be imported even though they are not referenced
 from AskMeApp.ui.query_screen import QueryScreen
 from AskMeApp.ui.settings_screen import SettingsScreen
@@ -96,6 +99,20 @@ class AskMeApp(App):
         
         logger.info("App started")
 
+        # Create the retrieval service
+        try:
+            self.retrieval = DocumentRetrieval(self.chroma)
+        except Exception:
+            logger.exception("Document retrieval initialization failed")
+            raise
+
+        # Create the context assembler
+        try:
+            self.context_assembler = ContextAssembler()
+        except Exception:
+            logger.exception("Context assembler initialization failed")
+            raise
+        
     #===============================================================================
     # reinitialize_llm
     #===============================================================================
@@ -137,7 +154,9 @@ class AskMeApp(App):
     
         self.chroma = ChromaClient(self.app_config)
     
-
+        # Recreate retrieval service using the new Chroma client
+        self.retrieval = DocumentRetrieval(self.chroma)
+        
     #===========================================================================
     # def _initialize_chroma(self):
     #     """

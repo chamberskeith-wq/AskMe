@@ -154,7 +154,13 @@ class DocumentIngestion:
 
         for page_number, page in enumerate(reader.pages, start=1):
             raw_text = page.extract_text() or ""
-                        
+            
+            logger.info(
+                "PDF PAGE %d: lowercase t count=%d",
+                page_number,
+                raw_text.count("t")
+            )
+            
             if raw_text.strip():
                 pages.append({
                     "page": page_number,
@@ -350,7 +356,7 @@ class DocumentIngestion:
         # Also accept a result embedded immediately after a test name,
         # including flattened appendix rows such as "CHOLESTEROL, TOTAL133 ...".
         embedded_pattern = re.compile(
-            r"^(?P<label>[A-Za-z][A-Za-z0-9 ,()/+._-]*?)"
+            r"^(?P<label>[A-Za-z(][A-Za-z0-9 ,()/+._-]*?)"
             r"\s*(?P<result>[+-]?(?:\d+(?:\.\d+)?|\.\d+))"
             r"\s*(?P<flag>[HA])?\s*(?P<details>.*)$"
         )
@@ -367,7 +373,7 @@ class DocumentIngestion:
                 return False
             if label.lower().startswith(("reference range", "desirable range", "risk:")):
                 return False
-            if re.search(r"\\b(?:FOR|WITH|FROM|MAY|ONLY|PATIENTS|DIABETES)\\b", label, re.I):
+            if re.search(r"\b(?:FOR|WITH|FROM|MAY|ONLY|PATIENTS|DIABETES)\b", label, re.I):
                 return False
             return True
 
@@ -381,8 +387,23 @@ class DocumentIngestion:
             embedded = embedded_pattern.match(line)
             if embedded and valid_label(embedded.group("label")):
                 label = embedded.group("label").strip()
-                # Rejoin a wrapped analyte name, e.g. "CHOLESTEROL," + "TOTAL133".
-                if index > 0 and lines[index - 1].endswith(",") and valid_label(lines[index - 1].rstrip(",")):
+
+                # Quest may wrap this analyte as:
+                # "UREA NITROGEN" on one line, then "(BUN) 13 ..." on the next.
+                if (
+                    label.upper() == "(BUN)"
+                    and index > 0
+                    and lines[index - 1].strip().upper() == "UREA NITROGEN"
+                ):
+                    label = "UREA NITROGEN (BUN)"
+
+                # Rejoin other wrapped analyte names, e.g.
+                # "CHOLESTEROL," + "TOTAL133".
+                elif (
+                    index > 0
+                    and lines[index - 1].endswith(",")
+                    and valid_label(lines[index - 1].rstrip(","))
+                ):
                     label = lines[index - 1].rstrip(",") + ", " + label
                 result_text = (
                     embedded.group("result")
@@ -417,11 +438,11 @@ class DocumentIngestion:
             # skip this ambiguous first-pass parse rather than mislabel it.
             if label.strip().upper() == "HEMOGLOBIN A":
                 continue
-            if re.search(r"\\b(?:Collected|Received|Reported):", result_text, re.I):
+            if re.search(r"\b(?:Collected|Received|Reported):", result_text, re.I):
                 continue
             # Avoid known extraction artifacts: split A1c token and lab
             # director/facility blocks are not analyte result rows.
-            if re.match(r"^1\\s+c\\b", result_text, re.I):
+            if re.match(r"^1\s+c\b", result_text, re.I):
                 continue
             if re.search(r"QUEST DIAGNOSTICS|LABORATORY DIRECTOR|CLIA:", label + " " + result_text, re.I):
                 continue

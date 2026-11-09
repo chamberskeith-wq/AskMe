@@ -30,14 +30,20 @@ class QueryScreen(Screen):
         
     # called after all the kv rules have been applied
     def on_kv_post(self, base):
-        # force the position back to the bottom of the prompt and response boxes
-        self.ids.prompt_label.bind(
-            texture_size=lambda *a: Clock.schedule_once(lambda dt: self._scroll_bottom("prompt"), 0)
-        )        
-        self.ids.prompt_label.bind(
-            texture_size=lambda *a: Clock.schedule_once(lambda dt: self._scroll_bottom("response"), 0)
-        )        
 
+        self.ids.prompt_label.bind(
+            texture_size=lambda *a:
+                Clock.schedule_once(
+                    lambda dt: self._scroll_bottom("prompt"), 0
+                )
+        )
+
+        self.ids.response_label.bind(
+            texture_size=lambda *a:
+                Clock.schedule_once(
+                    lambda dt: self._scroll_bottom("response"), 0
+                )
+        )
     #scroll to the bottom of the box
     def _scroll_bottom(self, which):
 
