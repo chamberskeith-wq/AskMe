@@ -33,12 +33,13 @@ class MyPrompt(object):
     # --------------------------------------------------------------------------------------
     #constructor
     
-    def __init__(self, q, c):
+    def __init__(self, q, c, instructions=""):
         '''
         Constructor : Initialize with the supplied query and context
         '''
         self._query = q
         self._context = c
+        self._instructions = instructions
         self._chat = False
         self._chat_session = None
         self._prompt = ""
@@ -76,6 +77,20 @@ class MyPrompt(object):
             self._context = value
             self._prompt = self._build_prompt()
         
+    # getter and setter for instructions
+    @property
+    def instructions(self):
+        """System instructions applied before the query and retrieved context."""
+        return self._instructions
+
+    @instructions.setter
+    def instructions(self, value):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("Prompt instructions must be a non-empty string")
+        if self._instructions != value:
+            self._instructions = value
+            self._prompt = self._build_prompt()
+    
     # getter for prompt 
     @property
     def prompt(self):
@@ -144,13 +159,15 @@ class MyPrompt(object):
     #build the prompt string
     def _build_prompt(self):
         
-        if self._context == "":
-            p = f"[Query: {self._query}]"
-        else:
-            p = f"[Query: {self._query}]\n[Context: {self._context}]"
+        sections = [
+            "SYSTEM INSTRUCTIONS\n" + self._instructions.strip(),
+            "USER QUESTION\n" + self._query.strip(),
+        ]
+        if self._context and self._context.strip():
+            sections.append("RETRIEVED CONTEXT (reference material)\n" + self._context.strip())
+        p = "\n\n".join(sections)
         
         self._answer = ""
         
         return p 
-        
         

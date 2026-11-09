@@ -17,7 +17,9 @@ import keyring
 from pathlib import Path
 from dataclasses import dataclass
 
-from AskMeApp.my_constants import CONFIG_FILE_NAME, CONFIG_FILE_PATH, LLM_types
+from AskMeApp.my_constants import (CONFIG_FILE_NAME, CONFIG_FILE_PATH, LLM_types,
+    DEFAULT_PROMPT_INSTRUCTIONS
+)
 
 #===============================================================================
 # ConfigError object
@@ -46,7 +48,8 @@ class AppConfig:
     chroma_db: str
     chroma_db_path: str
     default_llm: LLM_types
-
+    prompt_instructions: str = DEFAULT_PROMPT_INSTRUCTIONS
+    
     def validate(self) -> None:
         ''' Doc string '''
         
@@ -79,6 +82,11 @@ class AppConfig:
         # ---- DEFAULT LLM ----
         if not isinstance(self.default_llm, LLM_types):
             raise ConfigError("DEFAULT_LLM must be a valid LLM_types enum value")
+        
+                # ---- PROMPT INSTRUCTIONS ----
+        if not isinstance(self.prompt_instructions, str) or not self.prompt_instructions.strip():
+            raise ConfigError("PROMPT_INSTRUCTIONS must be a non-empty string")
+
 
     def update(
         self,
@@ -86,11 +94,15 @@ class AppConfig:
         chroma_db: str,
         chroma_db_path: str,
         default_llm: LLM_types,
+        prompt_instructions: str | None = None,
     ) -> None:
         
         self.chroma_db = chroma_db
         self.chroma_db_path = chroma_db_path
         self.default_llm = default_llm
+        if prompt_instructions is not None:
+            self.prompt_instructions = prompt_instructions  
+                 
         self.validate()
         
         
@@ -121,6 +133,9 @@ def load_config() -> AppConfig:
             chroma_db=raw["CHROMA_DB"],
             chroma_db_path=raw["CHROMA_DB_PATH"],
             default_llm=LLM_types(raw["DEFAULT_LLM"]),
+
+            # Existing YAML files remain compatible; use the default if absent.
+            prompt_instructions=raw.get("PROMPT_INSTRUCTIONS", DEFAULT_PROMPT_INSTRUCTIONS),
         )
     except KeyError as e:
         raise ConfigError(f"Missing required config key: {e.args[0]}") from e
@@ -143,6 +158,7 @@ def save_config(config: AppConfig) -> None:
                     "CHROMA_DB": config.chroma_db,
                     "CHROMA_DB_PATH": config.chroma_db_path,
                     "DEFAULT_LLM": config.default_llm.value,
+                    "PROMPT_INSTRUCTIONS": config.prompt_instructions,
                 },
                 f,
             )

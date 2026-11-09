@@ -52,26 +52,75 @@ class QueryScreen(Screen):
         elif which == "response":
             self.ids.response_scroll.scroll_to(self.ids.response_label, padding=0, animate=False)
 
+    # ---------------------------------------------------------
+    # Submit button
+    # ---------------------------------------------------------
     # called when the submit button is pressed
     def submit_inputs(self):
-        
-        #use APP instead of globals
+    
         app = App.get_running_app()
-
-        # setup the query and context
-        app.my_prompt.query = self.ids.question.text 
-        app.my_prompt.context = self.ids.context.text
-        
-        #display the prompt
-        self.ids.prompt_label.color = colormap["black"]    
-        self.ids.prompt_label.text = app.my_prompt.prompt
-
-        
-        # Schedule scroll to bottom after the next frame, a short delay if needed
-        Clock.schedule_once(lambda dt: self._scroll_bottom("prompt"), 0)        
-        Clock.schedule_once(lambda dt: self._scroll_bottom("response"), 0)    
-
-        # Call the LLM client with the prompt
-        ans = app.llm.call(app.my_prompt)       
-        self.ids.response_label.text = ans
-
+        question = self.ids.question.text.strip()
+    
+        if not question:
+            self.ids.response_label.text = "Please enter a question."
+            return
+    
+        try:
+            # 1. Retrieve records from ChromaDB
+            retrieval_results = app.retrieval.search_combined(
+                query_text=question,
+                top_k_per_type=10,
+                deduplicate_labs=False
+            )
+    
+            logger.info(
+                "Retrieval counts: %s",
+                retrieval_results["counts"]
+            )
+    
+            # 2. Assemble context
+            assembly = app.context_assembler.assemble(
+                retrieval_results
+            )
+    
+            context = assembly["context"]
+    
+            logger.info(
+                "Context assembly statistics: %s",
+                assembly["stats"]
+            )
+    
+            # 3. Update prompt
+            app.my_prompt.query = question
+            app.my_prompt.context = context
+            app.my_prompt.make_dirty()
+    
+            # 4. Display what will actually be sent
+            self.ids.context.text = context
+            self.ids.prompt_label.color = colormap["black"]
+            self.ids.prompt_label.text = app.my_prompt.prompt
+    
+            # 5. Call Gemini
+            if not context.strip():
+                self.ids.response_label.text = (
+                    "No relevant documents were retrieved. "
+                    "Please check the database and ingestion."
+                )
+                return
+    
+            answer = app.llm.call(app.my_prompt)
+            self.ids.response_label.text = answer
+    
+        except Exception as exc:
+            logger.exception("Question submission failed")
+            self.ids.response_label.text = (
+                f"An error occurred while processing your question:\n{exc}"
+            )
+    
+        finally:
+            Clock.schedule_once(
+                lambda dt: self._scroll_bottom("prompt"), 0
+            )
+            Clock.schedule_once(
+                lambda dt: self._scroll_bottom("response"), 0
+            )

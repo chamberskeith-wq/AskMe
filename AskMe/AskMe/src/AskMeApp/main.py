@@ -83,7 +83,7 @@ class AskMeApp(App):
 
         #create a global prompt instance
         try:
-            self.my_prompt = MyPrompt('','')
+            self.my_prompt = MyPrompt('','',self.app_config.prompt_instructions)
         except Exception as e:
             logger.exception("prompt initialization failed")
             raise
@@ -157,31 +157,6 @@ class AskMeApp(App):
         # Recreate retrieval service using the new Chroma client
         self.retrieval = DocumentRetrieval(self.chroma)
         
-    #===========================================================================
-    # def _initialize_chroma(self):
-    #     """
-    #     Create and initialize Chroma service.
-    #     Does NOT auto-create DB.
-    #     """
-    # 
-    #     logger.info("Initializing Chroma service")
-    # 
-    #     self.chroma = ChromaService(
-    #         db_path=self.app_config.chroma_db_path,
-    #         db_name=self.app_config.chroma_db
-    #     )
-    # 
-    #     self.chroma.initialize()
-    # 
-    #     if self.chroma.database_exists():
-    #         self.chroma.load_collection()
-    #         logger.info("Chroma collection loaded")
-    #     else:
-    #         logger.warning("Configured Chroma collection does not exist")
-    #===========================================================================
-        
-# run the app
-# this loads the screen manager and the first defined screen via Kivy magic
-
+ 
 if __name__ == '__main__':
     AskMeApp().run()

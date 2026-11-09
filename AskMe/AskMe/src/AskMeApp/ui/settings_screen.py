@@ -84,6 +84,11 @@ class SettingsScreen(Screen):
         self.ids.default_llm.values = llm_names
         self.ids.default_llm.text = self._working_config.default_llm.name
 
+        # Load the editable system instructions from the working config.
+        self.ids.prompt_instructions.text = (
+            self._working_config.prompt_instructions or ""
+        )
+
         # Never preload secrets
         self.ids.google_api_key.text = ""
         
@@ -123,6 +128,7 @@ class SettingsScreen(Screen):
                 chroma_db=self.ids.chroma_db.text.strip(),
                 chroma_db_path=self.current_path,
                 default_llm=LLM_types[self.ids.default_llm.text],
+                prompt_instructions=self.ids.prompt_instructions.text.strip(),
             )
 
             # Save config
@@ -134,6 +140,9 @@ class SettingsScreen(Screen):
             old_db_path = app.app_config.chroma_db_path
             
             app.app_config = self._working_config
+
+            # Apply the updated instructions to the active prompt.
+            app.my_prompt.instructions = app.app_config.prompt_instructions
 
             # Store API key if provided
             api_key = self.ids.google_api_key.text.strip()
@@ -201,6 +210,8 @@ class SettingsScreen(Screen):
         self.bind(current_path=lambda *a: self._check_dirty())
         self.ids.chroma_db.bind(text=lambda *a: self._check_dirty())
         self.ids.default_llm.bind(text=lambda *a: self._check_dirty())
+        self.ids.prompt_instructions.bind(text=lambda *a: self._check_dirty())
+        self.ids.google_api_key.bind(text=lambda *a: self._check_dirty())
     
     #===========================================================================
     # _check_dirty
@@ -230,13 +241,19 @@ class SettingsScreen(Screen):
             self.ids.default_llm.text
             != self._working_config.default_llm.name
         )
-    
+
+        instructions_changed = (
+            self.ids.prompt_instructions.text.strip()
+            != self._working_config.prompt_instructions
+        )
+
         api_key_entered = bool(self.ids.google_api_key.text.strip())
     
         self.is_dirty = (
             db_changed or
             path_changed or
             llm_changed or
+            instructions_changed or
             api_key_entered
         )
 
