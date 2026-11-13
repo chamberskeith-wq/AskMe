@@ -7,10 +7,11 @@ Created on Aug 25, 2025
 # -----------------------------
 # Configure logging
 # -----------------------------
-from AskMeApp.my_logging import configure_base_logging, enforce_library_levels, APP_NAMESPACE
+from common
+AskMeApp.my_logging import configure_base_logging, enforce_library_levels, APP_NAMESPACE
 configure_base_logging()
 
-import logging
+import logging  
 logger = logging.getLogger(APP_NAMESPACE)
 
 # -----------------------------
@@ -21,6 +22,7 @@ from kivy.app import App
 from kivy.utils import colormap 
 
 # import modules in this package
+# 
 from AskMeApp.my_LLM import LLMClient
 from AskMeApp.my_prompt import MyPrompt
 from AskMeApp.my_configuration import ConfigError, load_config 
